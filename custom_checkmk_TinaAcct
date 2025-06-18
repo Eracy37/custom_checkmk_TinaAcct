@@ -1,0 +1,71 @@
+#!/bin/bash
+#===============================================================================
+# Script Name   : custom_checkmk_TinaAcct
+# Author        : GUERRY Cynthia (Eracy37)
+# Version       : 1.0.0
+# Last Modifed  : 15/06/2025
+# Description   : check Tina Status job for checkmk (Atempo Time Navigator)
+#===============================================================================
+
+/opt/Atempo/TimeNavigator/tina/Bin/tina_acct -back_hour 744 -output_format csv -v_catalog -v_platform -v_vm_name -v_folder -v_jobtype -v_dates -v_volume -volume_unit kilo -v_status | awk -F';' '
+NR > 1 {
+  vm = $5
+  platform = $4
+  gsub(/ /, "", platform)
+  job_type = $8
+  end_date = $11
+  status = $14
+  folder = $6
+
+  platform_display = platform
+  vm_display = vm
+
+  if (vm == "") {
+    if (folder ~ /host/) {
+      # Key for agent
+      key = "HOST|" platform
+      platform_display = "HOST"
+      vm_display = platform
+    } else if (folder ~ /Nas/) {
+      # Key for Nas
+      key = "NAS|" platform
+      platform_display = "NAS"
+      vm_display = platform
+    } else if (folder ~/.cat/) {
+      # Key for catalog
+      key = "CATALOG|" platform
+      platform_display = "CATALOG"
+      vm_display = platform
+    } else {
+      next
+    }
+  } else {
+    # Key for vm
+    key = platform "|" vm
+  }
+
+  # Status
+  if (tolower(status) ~ /error/) {
+    status = 2
+    msg = "Backup Failed"
+  } else {
+    status = 0
+    msg = "Backup Completed"
+  }
+
+  # Last exec
+  if (!(key in dates) || (end_date > dates[key]) || (end_date == dates[key] && status == 0)) {
+    platforms[key] = platform_display
+    vms[key] = vm_display
+    jobtypes[key] = job_type
+    statusKey[key] = status
+    statusjob[key] = msg
+    dates[key] = end_date
+  }
+}
+END {
+  for (key in statusKey) {
+    printf "%d StatusJobTinaAcct_%s_%s - %s (Last: %s, %s)\n",
+           statusKey[key], platforms[key], vms[key], statusjob[key], dates[key], jobtypes[key]
+  }
+}' | sort -t_ -k3
